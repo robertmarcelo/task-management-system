@@ -12,6 +12,11 @@ export default function Home() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [filter, setFilter] = useState("all");
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   
   const [editingId, setEditingId] = useState<string | number | null>(null);
 const [editTitle, setEditTitle] = useState("");
@@ -23,19 +28,24 @@ useEffect(() => {
       const data = await getTodos();
       setTodos(data);
     } catch (error) {
-      console.error("Error loading todos:", error);
-    }
+  console.error("Error loading todos:", error);
+  setError("Failed to load tasks. Please try again.");
+} finally {
+  setLoading(false);
+}
   }
 
   loadTodos();
 }, []);
 
-  async function addTodo(e: React.FormEvent<HTMLFormElement>) {
+ async function addTodo(e: React.FormEvent<HTMLFormElement>) {
   e.preventDefault();
 
-  if (title.trim() === "") {
+  if (title.trim() === "" || submitting) {
     return;
   }
+
+  setSubmitting(true);
 
   try {
     const newTodo = await createTodo(title.trim(), description.trim());
@@ -47,6 +57,8 @@ useEffect(() => {
   } catch (error) {
     console.error("Error creating todo:", error);
     alert("Failed to save task. Please try again.");
+  } finally {
+    setSubmitting(false);
   }
 }
 
@@ -84,6 +96,49 @@ useEffect(() => {
   } catch (error) {
     console.error("Error deleting todo:", error);
     alert("Failed to delete task. Please try again.");
+  }
+}
+
+
+function startEditing(todo: Todo) {
+  setEditingId(todo.id);
+  setEditTitle(todo.title);
+  setEditDescription(todo.description || "");
+}
+
+function cancelEditing() {
+  setEditingId(null);
+  setEditTitle("");
+  setEditDescription("");
+}
+
+async function saveEdit(id: string | number) {
+  if (editTitle.trim() === "" || savingEdit) {
+    return;
+  }
+
+  setSavingEdit(true);
+
+  const updates = {
+    title: editTitle.trim(),
+    description: editDescription.trim() || null,
+  };
+
+  try {
+    const updatedTodo = await updateTodo(id, updates);
+
+    setTodos((previousTodos) =>
+      previousTodos.map((todo) =>
+        todo.id === id ? updatedTodo : todo
+      )
+    );
+
+    cancelEditing();
+  } catch (error) {
+    console.error("Error editing todo:", error);
+    alert("Failed to save changes. Please try again.");
+  } finally {
+    setSavingEdit(false);
   }
 }
 
@@ -129,11 +184,12 @@ useEffect(() => {
             />
 
             <button
-              type="submit"
-              className="rounded-lg bg-blue-600 px-5 py-3 font-medium text-white hover:bg-blue-700"
-            >
-              + Add Task
-            </button>
+  type="submit"
+  disabled={submitting}
+  className="rounded-lg bg-blue-600 px-5 py-3 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+>
+  {submitting ? "Saving..." : "+ Add Task"}
+</button>
           </form>
         </section>
 
@@ -167,7 +223,16 @@ useEffect(() => {
 
           {/* Task List */}
           <div className="space-y-3">
-            {filteredTodos.length === 0 ? (
+            {error && (
+  <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+    {error}
+  </p>
+)}
+            {loading ? (
+  <p className="py-10 text-center text-gray-500">
+    Loading tasks...
+  </p>
+) : filteredTodos.length === 0 ? (
               <div className="rounded-lg border border-dashed border-gray-300 py-10 text-center">
                 <p className="text-gray-500">No tasks to display.</p>
                 <p className="mt-1 text-sm text-gray-400">
@@ -175,50 +240,99 @@ useEffect(() => {
                 </p>
               </div>
             ) : (
-              filteredTodos.map((todo) => (
-                <div
-                  key={todo.id}
-                  className="flex items-start justify-between rounded-lg border border-gray-200 p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={todo.completed}
-                      onChange={() => toggleTodo(todo.id)}
-                      className="mt-1 h-4 w-4"
-                    />
+              
+filteredTodos.map((todo) => (
+  <div
+    key={todo.id}
+    className="flex items-start justify-between rounded-lg border border-gray-200 p-4"
+  >
+    {editingId === todo.id ? (
+      <div className="flex-1 space-y-3">
+        <input
+          type="text"
+          value={editTitle}
+          onChange={(e) => setEditTitle(e.target.value)}
+          placeholder="Task title"
+          className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+        />
 
-                    <div>
-                      <h3
-                        className={`font-medium ${
-                          todo.completed
-                            ? "text-gray-400 line-through"
-                            : "text-gray-800"
-                        }`}
-                      >
-                        {todo.title}
-                      </h3>
+        <textarea
+          value={editDescription}
+          onChange={(e) => setEditDescription(e.target.value)}
+          placeholder="Task description"
+          className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+          rows={2}
+        />
 
-                      {todo.description && (
-                        <p className="mt-1 text-sm text-gray-500">
-                          {todo.description}
-                        </p>
-                      )}
+        <div className="flex gap-2">
+          <button
+  onClick={() => saveEdit(todo.id)}
+  disabled={savingEdit}
+  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+>
+  {savingEdit ? "Saving..." : "Save"}
+</button>
 
-                      <p className="mt-2 text-xs text-gray-400">
-                        {todo.completed ? "Completed" : "Pending"}
-                      </p>
-                    </div>
-                  </div>
+          <button
+            onClick={cancelEditing}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    ) : (
+      <>
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={todo.completed}
+            onChange={() => toggleTodo(todo.id)}
+            className="mt-1 h-4 w-4"
+          />
 
-                  <button
-                    onClick={() => handleDeleteTodo(todo.id)}
-                    className="text-sm text-red-500 hover:text-red-700"
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))
+          <div>
+            <h3
+              className={`font-medium ${
+                todo.completed
+                  ? "text-gray-400 line-through"
+                  : "text-gray-800"
+              }`}
+            >
+              {todo.title}
+            </h3>
+
+            {todo.description && (
+              <p className="mt-1 text-sm text-gray-500">
+                {todo.description}
+              </p>
+            )}
+
+            <p className="mt-2 text-xs text-gray-400">
+              {todo.completed ? "Completed" : "Pending"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={() => startEditing(todo)}
+            className="text-sm text-blue-500 hover:text-blue-700"
+          >
+            Edit
+          </button>
+
+          <button
+            onClick={() => handleDeleteTodo(todo.id)}
+            className="text-sm text-red-500 hover:text-red-700"
+          >
+            Delete
+          </button>
+        </div>
+      </>
+    )}
+  </div>
+))
             )}
           </div>
         </section>
