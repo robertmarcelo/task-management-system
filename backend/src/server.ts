@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import { z } from "zod";
 import { Prisma } from "./generated/prisma/client";
 import { prisma } from "./database/prisma";
 
@@ -62,21 +63,34 @@ app.get("/api/todos", async (req, res) => {
   }
 });
 
-
-
+const createTodoSchema = z.object({
+  title: z.string().trim().min(1, "Title is required"),
+  description: z.string().nullable().optional(),
+});
+const updateTodoSchema = z.object({
+  title: z.string().trim().min(1, "Title must be a non-empty string").optional(),
+  description: z.string().nullable().optional(),
+  completed: z.boolean().optional(),
+}).refine(
+  (data) =>
+    data.title !== undefined ||
+    data.description !== undefined ||
+    data.completed !== undefined,
+  {
+    message: "At least one field is required to update",
+  }
+);
 app.post("/api/todos", async (req, res) => {
   try {
-    const { title, description } = req.body;
+    const result = createTodoSchema.safeParse(req.body);
 
-    // Validate the title
-    if (
-      typeof title !== "string" ||
-      title.trim() === ""
-    ) {
-      return res.status(400).json({
-        message: "Title is required",
-      });
-    }
+if (!result.success) {
+  return res.status(400).json({
+    message: result.error.issues[0].message,
+  });
+}
+
+const { title, description } = result.data;
 
     // Create the Todo in PostgreSQL
     const newTodo = await prisma.todo.create({
@@ -102,50 +116,16 @@ app.post("/api/todos", async (req, res) => {
 
 app.patch("/api/todos/:id", async (req, res) => {
   try {
-    const { title, description, completed } = req.body;
-    const id = req.params.id;
+    const result = updateTodoSchema.safeParse(req.body);
 
-    // Validate title if provided
-    if (
-      title !== undefined &&
-      (typeof title !== "string" || title.trim() === "")
-    ) {
-      return res.status(400).json({
-        message: "Title must be a non-empty string",
-      });
-    }
+if (!result.success) {
+  return res.status(400).json({
+    message: result.error.issues[0].message,
+  });
+}
 
-    // Validate description if provided
-    if (
-      description !== undefined &&
-      description !== null &&
-      typeof description !== "string"
-    ) {
-      return res.status(400).json({
-        message: "Description must be a string or null",
-      });
-    }
-
-    // Validate completed if provided
-    if (
-      completed !== undefined &&
-      typeof completed !== "boolean"
-    ) {
-      return res.status(400).json({
-        message: "Completed must be a boolean",
-      });
-    }
-
-    // Ensure at least one field is provided
-    if (
-      title === undefined &&
-      description === undefined &&
-      completed === undefined
-    ) {
-      return res.status(400).json({
-        message: "At least one field is required to update",
-      });
-    }
+const { title, description, completed } = result.data;
+const id = req.params.id;
 
 
     // Update Todo
