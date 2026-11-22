@@ -27,7 +27,7 @@ app.get("/api/todos", async (req, res) => {
   try {
     const status = req.query.status;
 
-    // Validate the status query parameter
+    // Validate status
     if (
       status !== undefined &&
       status !== "completed" &&
@@ -38,6 +38,24 @@ app.get("/api/todos", async (req, res) => {
       });
     }
 
+    // Validate pagination
+    const page = req.query.page === undefined ? 1 : Number(req.query.page);
+const limit = req.query.limit === undefined ? 10 : Number(req.query.limit);
+
+    if (
+      !Number.isInteger(page) ||
+      !Number.isInteger(limit) ||
+      page < 1 ||
+      limit < 1 ||
+      limit > 100
+    ) {
+      return res.status(400).json({
+        message: "Page must be at least 1 and limit must be between 1 and 100",
+      });
+    }
+
+    const skip = (page - 1) * limit;
+
     // Build the filter
     const where =
       status === "completed"
@@ -46,12 +64,24 @@ app.get("/api/todos", async (req, res) => {
         ? { completed: false }
         : {};
 
-    const todos = await prisma.todo.findMany({
-      where,
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    // Fetch todos and total count
+    const [todos, total] = await Promise.all([
+      prisma.todo.findMany({
+        where,
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: limit,
+      }),
+      prisma.todo.count({ where }),
+    ]);
+
+    // Pagination metadata in response headers
+    res.set("X-Total-Count", String(total));
+    res.set("X-Page", String(page));
+    res.set("X-Limit", String(limit));
+    res.set("X-Total-Pages", String(Math.ceil(total / limit)));
 
     res.json(todos);
   } catch (error) {
