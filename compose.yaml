@@ -26,6 +26,8 @@ services:
     environment:
       PORT: 5000
       DATABASE_URL: postgresql://todo_user:todo_password@db:5432/todo_db?schema=public
+      JWT_SECRET: dev-jwt-super-secret-key-task-management-2026
+      JWT_EXPIRES_IN: 7d
     ports:
       - "5000:5000"
     depends_on:

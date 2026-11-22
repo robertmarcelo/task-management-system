@@ -1,10 +1,13 @@
-
-import { Router } from "express";
+import { Router, Response } from "express";
 import { z } from "zod";
 import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../database/prisma";
+import { authenticate, AuthenticatedRequest } from "../middleware/auth.middleware";
 
 const router = Router();
+
+// Protect all todo routes with JWT authentication
+router.use(authenticate);
 
 // Zod validation schemas
 const createTodoSchema = z.object({
@@ -32,9 +35,10 @@ const updateTodoSchema = z
     }
   );
 
-// GET all Todos with filtering and pagination
-router.get("/", async (req, res) => {
+// GET all Todos for the authenticated user with filtering and pagination
+router.get("/", async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = req.user!.id;
     const status = req.query.status;
 
     // Validate status
@@ -66,15 +70,20 @@ router.get("/", async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    // Build the filter
-    const where =
-      status === "completed"
+    // Build the user-scoped filter
+    const where: {
+      userId: string;
+      completed?: boolean;
+    } = {
+      userId,
+      ...(status === "completed"
         ? { completed: true }
         : status === "pending"
           ? { completed: false }
-          : {};
+          : {}),
+    };
 
-    // Fetch Todos and total count
+    // Fetch Todos and total count for this user
     const [todos, total] = await Promise.all([
       prisma.todo.findMany({
         where,
@@ -103,9 +112,10 @@ router.get("/", async (req, res) => {
   }
 });
 
-// POST create a Todo
-router.post("/", async (req, res) => {
+// POST create a Todo for the authenticated user
+router.post("/", async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = req.user!.id;
     const result = createTodoSchema.safeParse(req.body);
 
     if (!result.success) {
@@ -120,6 +130,7 @@ router.post("/", async (req, res) => {
       data: {
         title: title.trim(),
         description,
+        userId,
       },
     });
 
@@ -133,9 +144,11 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PATCH update a Todo
-router.patch("/:id", async (req, res) => {
+// PATCH update a Todo owned by the authenticated user
+router.patch("/:id", async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = req.user!.id;
+    const id = req.params.id as string;
     const result = updateTodoSchema.safeParse(req.body);
 
     if (!result.success) {
@@ -144,8 +157,18 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    // Verify the todo belongs to the authenticated user
+    const existingTodo = await prisma.todo.findFirst({
+      where: { id, userId },
+    });
+
+    if (!existingTodo) {
+      return res.status(404).json({
+        message: "Todo not found",
+      });
+    }
+
     const { title, description, completed } = result.data;
-    const id = req.params.id;
 
     const updatedTodo = await prisma.todo.update({
       where: { id },
@@ -175,10 +198,22 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// DELETE a Todo
-router.delete("/:id", async (req, res) => {
+// DELETE a Todo owned by the authenticated user
+router.delete("/:id", async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const id = req.params.id;
+    const userId = req.user!.id;
+    const id = req.params.id as string;
+
+    // Verify the todo belongs to the authenticated user
+    const existingTodo = await prisma.todo.findFirst({
+      where: { id, userId },
+    });
+
+    if (!existingTodo) {
+      return res.status(404).json({
+        message: "Todo not found",
+      });
+    }
 
     await prisma.todo.delete({
       where: { id },
